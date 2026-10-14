@@ -84,17 +84,18 @@ a { color: var(--accent); }
   padding: 24px 28px 48px; max-width: 1500px; margin: 0 auto; align-items: start;
 }
 .rail { position: sticky; top: 16px; display: grid; gap: 16px; }
-.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 16px; min-width: 0; }
 .panel h2 { margin: 0 0 10px; font: 600 17px/1.3 var(--font-serif); }
 
 .drop {
-  border: 1.5px dashed var(--slate); border-radius: 6px; padding: 22px 14px; text-align: center;
+  border: 1.5px dashed var(--slate); border-radius: 6px; padding: 20px 16px; text-align: center;
   cursor: pointer; background: var(--bg); transition: background .15s, border-color .15s;
+  max-width: 100%; box-sizing: border-box;
 }
 .drop:hover, .drop.over { border-color: var(--accent); background: var(--soft); }
 .drop strong { display: block; font-weight: 600; }
 .drop span { color: var(--slate); font-size: 13px; }
-.drop .picked { color: var(--ink); font-family: var(--font-mono); font-size: 13px; word-break: break-all; }
+.drop .picked { color: var(--ink); font-family: var(--font-mono); font-size: 13px; word-break: normal; }
 .opt { display: flex; gap: 8px; align-items: flex-start; margin: 12px 0 4px; font-size: 14px; }
 .opt input { margin-top: 3px; }
 .opt small { display: block; color: var(--slate); font-size: 12.5px; }
@@ -183,7 +184,7 @@ details.trace ol { margin: 6px 0 0; padding-left: 20px; font-size: 13px; color: 
 
 @media (max-width: 980px) {
   .layout { grid-template-columns: 1fr; padding: 16px; }
-  .rail { position: static; }
+  .rail { position: static; max-width: 100%; box-sizing: border-box; }
   .file > summary { grid-template-columns: 1fr; gap: 8px; }
   .chips { justify-content: flex-start; }
   .top { padding: 14px 16px; }
@@ -211,11 +212,11 @@ details.trace ol { margin: 6px 0 0; padding-left: 20px; font-size: 13px; color: 
   <aside class="rail">
     <section class="panel" aria-labelledby="up-h">
       <h2 id="up-h">Что проверить</h2>
-      <label class="drop" id="drop" for="file">
+      <div class="drop" id="drop" for="file">
         <strong>Выберите файл или zip-архив</strong>
         <span id="drop-hint">или перетащите его сюда. Архив обходится целиком, включая вложенные папки и архивы.</span>
         <input type="file" id="file" hidden>
-      </label>
+      </div>
       <label class="opt">
         <input type="checkbox" id="useLlm" checked>
         <span>Использовать LLM и анализ изображений
@@ -272,6 +273,7 @@ details.trace ol { margin: 6px 0 0; padding-left: 20px; font-size: 13px; color: 
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var state = { scanId: null, job: null, verdict: '', q: '', page: 0, size: 50, items: [], total: 0, timer: null, loading: false };
+var openTraces = {};
   var SPECIAL_ARTICLES = ['ст. 10 ч. 1', 'ст. 10 ч. 3'];
 
   function esc(s) {
@@ -378,7 +380,7 @@ details.trace ol { margin: 6px 0 0; padding-left: 20px; font-size: 13px; color: 
       renderSummary(job);
       var running = job.status === 'PENDING' || job.status === 'RUNNING';
       loadFiles(true);
-      if (running) { state.timer = setTimeout(poll, 1500); }
+      if (running) { state.timer = setTimeout(poll, 5000); }
       else if (job.status === 'FAILED') { showError('Сканирование завершилось ошибкой: ' + (job.error || 'неизвестная ошибка')); }
     }).catch(function (e) { showError(e.message); });
   }
@@ -453,6 +455,7 @@ details.trace ol { margin: 6px 0 0; padding-left: 20px; font-size: 13px; color: 
   }
 
   var openPaths = {};
+  var openTraces = {};
   function renderFiles() {
     var box = $('files');
     $('total').textContent = state.total ? ('Показано ' + state.items.length + ' из ' + state.total) : '';
@@ -465,6 +468,9 @@ details.trace ol { margin: 6px 0 0; padding-left: 20px; font-size: 13px; color: 
     box.innerHTML = state.items.map(fileHtml).join('');
     Array.prototype.forEach.call(box.querySelectorAll('details.file'), function (d) {
       d.addEventListener('toggle', function () { openPaths[d.dataset.path] = d.open; });
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('details.trace'), function (d) {
+      d.addEventListener('toggle', function () { openTraces[d.closest('details.file').dataset.path] = d.open; });
     });
   }
 
@@ -511,7 +517,8 @@ details.trace ol { margin: 6px 0 0; padding-left: 20px; font-size: 13px; color: 
   }
   function traceHtml(f) {
     if (!f.trace.length) { return ''; }
-    return '<details class="trace"><summary>Шаги проверки (' + f.durationMs + ' мс)</summary><ol>' +
+    var open = openTraces[f.path] ? ' open' : '';
+    return '<details class="trace" ' + open + '><summary>Шаги проверки (' + f.durationMs + ' мс)</summary><ol>' +
       f.trace.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ol></details>';
   }
 

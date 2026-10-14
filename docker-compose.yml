@@ -11,6 +11,23 @@ services:
       - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
+    environment:
+      MODEL: ${OLLAMA_MODEL:-gemma3:4b}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        pid=$$!
+        trap 'kill $$pid' TERM INT
+        until ollama list >/dev/null 2>&1; do sleep 1; done
+        until ollama pull "$$MODEL"; do echo "Ollama pull failed, retrying in 5s..."; sleep 5; done
+        wait $$pid
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list | grep -qF \"$$MODEL\""]
+      interval: 10s
+      timeout: 5s
+      retries: 90
+      start_period: 15s
     # Для NVIDIA GPU раскомментируйте (нужен nvidia-container-toolkit):
     # deploy:
     #   resources:
@@ -20,28 +37,15 @@ services:
     #           count: all
     #           capabilities: [gpu]
 
-  # Разовая загрузка модели; после завершения контейнер останавливается
-  ollama-pull:
-    image: ollama/ollama:latest
-    depends_on:
-      - ollama
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-      MODEL: ${OLLAMA_MODEL:-gemma3:4b}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        until ollama list >/dev/null 2>&1; do sleep 2; done
-        ollama pull "$$MODEL"
-    restart: "no"
-
   app:
     build: .
     ports:
       - "8080:8080"
     depends_on:
-      - redis
-      - ollama
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_healthy
     environment:
       REDIS_HOST: redis
       OLLAMA_URL: http://ollama:11434

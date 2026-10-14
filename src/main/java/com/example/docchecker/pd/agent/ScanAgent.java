@@ -207,6 +207,8 @@ public class ScanAgent {
             }
         } catch (LlmResponseFormatException e) {
             run.llmBadAnswers++;
+            run.notes.add("Ошибка формата ответа от LLM (попытка " + (run.llmBadAnswers + 1) + "): " + 
+                    (e.getMessage() != null ? e.getMessage().substring(0, Math.min(80, e.getMessage().length())) : "unknown"));
         } catch (OllamaException e) {
             run.llmDown = true;
             run.notes.add("LLM недоступна, поиск в тексте выполнен только правилами: " + e.getMessage());
