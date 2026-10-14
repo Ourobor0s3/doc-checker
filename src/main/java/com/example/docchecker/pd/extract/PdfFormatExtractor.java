@@ -71,8 +71,12 @@ public class PdfFormatExtractor implements FormatExtractor {
                         continue;
                     }
                     rendered++;
-                    BufferedImage img = renderer.renderImageWithDPI(p - 1, cfg.pdfRenderDpi(), ImageType.RGB);
-                    out.image("стр. " + p + " (скан)", images.encode(img));
+                    try {
+                        BufferedImage img = renderer.renderImageWithDPI(p - 1, cfg.pdfRenderDpi(), ImageType.RGB);
+                        out.image("стр. " + p + " (скан)", images.encode(img));
+                    } catch (Exception e) {
+                        out.note("Стр. " + p + ": не удалось прочитать скан (устранена зависимость jbig2-imageio); текст извлечён");
+                    }
                 } else {
                     embeddedImages(doc.getPage(p - 1), p, out);
                 }

@@ -91,6 +91,11 @@ public class ScanRunner {
             log.error("Сканирование {} завершилось ошибкой", job.id, e);
             job.status = ScanStatus.FAILED;
             job.error = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        } catch (Error e) {
+            log.error("Сканирование {} прервано ошибкой JVM/classpath", job.id, e);
+            job.status = ScanStatus.FAILED;
+            job.error = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            throw e;
         } finally {
             job.currentFile = null;
             job.finishedAt = Instant.now();

@@ -44,7 +44,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
 /** Сквозной тест: zip с файлами разных форматов (имена в cp866) → отчёт с путями, находками и нормами. Без Redis и Ollama. */
-@SpringBootTest(properties = "app.storage.type=memory")
+@SpringBootTest(properties = {
+        "app.storage.type=memory",
+        "app.pd.mask-values=true"
+})
 class PdScanFlowTest {
 
     @TestConfiguration
