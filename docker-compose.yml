@@ -1,0 +1,53 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # Для NVIDIA GPU раскомментируйте (нужен nvidia-container-toolkit):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # Разовая загрузка модели; после завершения контейнер останавливается
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      MODEL: ${OLLAMA_MODEL:-gemma3:4b}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until ollama list >/dev/null 2>&1; do sleep 2; done
+        ollama pull "$$MODEL"
+    restart: "no"
+
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+      - ollama
+    environment:
+      REDIS_HOST: redis
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_TEXT_MODEL: ${OLLAMA_MODEL:-gemma3:4b}
+      OLLAMA_VISION_MODEL: ${OLLAMA_MODEL:-gemma3:4b}
+
+volumes:
+  redis-data:
+  ollama-data:

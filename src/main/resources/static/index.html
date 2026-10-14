@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Поиск персональных данных</title>
+<style>
+:root {
+  --bg: #f2f4f7;
+  --panel: #ffffff;
+  --ink: #15202b;
+  --slate: #5a6676;
+  --rule: #d8dee6;
+  --soft: #e9edf2;
+  --redact: #111418;
+  --accent: #1f4ea8;
+  --accent-ink: #ffffff;
+  --yes: #a3281e;
+  --yes-bg: #fbeceb;
+  --no: #2b6a4c;
+  --no-bg: #e8f3ed;
+  --und: #96640a;
+  --und-bg: #faf1de;
+  --special: #7a1d57;
+  --font-text: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f141a;
+    --panel: #171e27;
+    --ink: #e7ecf2;
+    --slate: #9aa6b6;
+    --rule: #2b3541;
+    --soft: #202a35;
+    --redact: #e7ecf2;
+    --accent: #7aa7ff;
+    --accent-ink: #0b1220;
+    --yes: #ff8a7d;
+    --yes-bg: #3a1c19;
+    --no: #6fd0a0;
+    --no-bg: #15302350;
+    --und: #f0bf5e;
+    --und-bg: #35290f;
+    --special: #e58fc4;
+  }
+}
+* { box-sizing: border-box; }
+html { color-scheme: light dark; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 var(--font-text);
+}
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.top {
+  display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap;
+  padding: 18px 28px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+}
+.top h1 { margin: 0; font: 600 24px/1.2 var(--font-serif); letter-spacing: 0; }
+.top .sub { color: var(--slate); font-size: 14px; }
+.top .grow { flex: 1; }
+.health { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--slate); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--slate); display: inline-block; }
+.dot.ok { background: var(--no); }
+.dot.bad { background: var(--yes); }
+.dot.warn { background: var(--und); }
+
+.notice {
+  margin: 0; padding: 9px 28px; font-size: 13px; color: var(--slate);
+  background: var(--soft); border-bottom: 1px solid var(--rule);
+}
+.notice b { color: var(--ink); font-weight: 600; }
+
+.layout {
+  display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 24px;
+  padding: 24px 28px 48px; max-width: 1500px; margin: 0 auto; align-items: start;
+}
+.rail { position: sticky; top: 16px; display: grid; gap: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 16px; }
+.panel h2 { margin: 0 0 10px; font: 600 17px/1.3 var(--font-serif); }
+
+.drop {
+  border: 1.5px dashed var(--slate); border-radius: 6px; padding: 22px 14px; text-align: center;
+  cursor: pointer; background: var(--bg); transition: background .15s, border-color .15s;
+}
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--soft); }
+.drop strong { display: block; font-weight: 600; }
+.drop span { color: var(--slate); font-size: 13px; }
+.drop .picked { color: var(--ink); font-family: var(--font-mono); font-size: 13px; word-break: break-all; }
+.opt { display: flex; gap: 8px; align-items: flex-start; margin: 12px 0 4px; font-size: 14px; }
+.opt input { margin-top: 3px; }
+.opt small { display: block; color: var(--slate); font-size: 12.5px; }
+.btn {
+  appearance: none; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink);
+  border-radius: 5px; padding: 9px 16px; font-weight: 600; cursor: pointer;
+}
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.ghost { background: transparent; color: var(--accent); }
+.btn.small { padding: 5px 10px; font-weight: 500; font-size: 13px; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.row.end { justify-content: flex-end; }
+
+.progress { margin-top: 14px; }
+.bar-track { height: 8px; background: var(--soft); border-radius: 4px; overflow: hidden; }
+.bar-fill { height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+.progress p { margin: 6px 0 0; font-size: 13px; color: var(--slate); word-break: break-all; }
+.err { margin-top: 12px; padding: 9px 11px; border-radius: 5px; background: var(--yes-bg); color: var(--yes); font-size: 14px; }
+
+.counts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.count { padding: 10px 12px; border-radius: 5px; background: var(--bg); border-left: 4px solid var(--slate); }
+.count b { display: block; font: 600 28px/1.1 var(--font-serif); }
+.count span { font-size: 13px; color: var(--slate); }
+.count.yes { border-color: var(--yes); } .count.yes b { color: var(--yes); }
+.count.no { border-color: var(--no); } .count.no b { color: var(--no); }
+.count.und { border-color: var(--und); } .count.und b { color: var(--und); }
+
+.types { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.types li { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 13.5px; }
+.types .meter { grid-column: 1 / -1; height: 5px; background: var(--soft); border-radius: 3px; }
+.types .meter i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.types li.special .meter i { background: var(--special); }
+.types .n { font-variant-numeric: tabular-nums; color: var(--slate); }
+.arts { margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid var(--rule); font-size: 13px; color: var(--slate); }
+
+.toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; background: var(--panel); }
+.seg button { border: 0; background: transparent; padding: 7px 12px; cursor: pointer; font-size: 14px; border-right: 1px solid var(--rule); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+.search { flex: 1; min-width: 160px; padding: 7px 10px; border: 1px solid var(--rule); border-radius: 5px; background: var(--panel); }
+.total { color: var(--slate); font-size: 13.5px; }
+
+.files { display: grid; gap: 8px; }
+.file { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; }
+.file > summary {
+  list-style: none; cursor: pointer; padding: 11px 14px;
+  display: grid; grid-template-columns: 124px minmax(0, 1fr) auto; gap: 14px; align-items: center;
+}
+.file > summary::-webkit-details-marker { display: none; }
+.file[open] > summary { border-bottom: 1px solid var(--rule); }
+.stamp {
+  display: inline-block; text-align: center; padding: 3px 8px; border: 2px solid currentColor; border-radius: 3px;
+  font: 700 12.5px/1.25 var(--font-text); transform: rotate(-2deg); justify-self: start;
+}
+.stamp.YES { color: var(--yes); background: var(--yes-bg); }
+.stamp.NO { color: var(--no); background: var(--no-bg); }
+.stamp.UNDETERMINED { color: var(--und); background: var(--und-bg); }
+.path { min-width: 0; overflow-wrap: anywhere; }
+.path .dir { color: var(--slate); font-size: 13px; }
+.path .name { font-weight: 600; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.chip { font-size: 12.5px; padding: 2px 8px; border-radius: 10px; background: var(--soft); color: var(--slate); white-space: nowrap; }
+.chip.warn { background: var(--und-bg); color: var(--und); }
+
+.body { padding: 4px 14px 14px; display: grid; gap: 12px; }
+.finds { width: 100%; border-collapse: collapse; font-size: 14px; }
+.finds th { text-align: left; font-weight: 600; color: var(--slate); font-size: 13px; padding: 8px 10px 6px 0; border-bottom: 1px solid var(--rule); }
+.finds td { padding: 9px 10px 9px 0; vertical-align: top; border-bottom: 1px solid var(--soft); }
+.finds tr.weak td { opacity: .8; }
+.val { font-family: var(--font-mono); font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.val .redact { display: inline-block; height: 1.05em; background: var(--redact); vertical-align: -0.17em; margin: 0 1px; border-radius: 1px; }
+.type { font-weight: 600; }
+.type.special { color: var(--special); }
+.loc { color: var(--slate); font-size: 13px; overflow-wrap: anywhere; }
+.law b { font-weight: 600; }
+.law p { margin: 2px 0 0; font-size: 13px; color: var(--slate); max-width: 52ch; }
+.conf { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--slate); white-space: nowrap; }
+.conf i { display: inline-block; width: 42px; height: 5px; background: var(--soft); border-radius: 3px; position: relative; }
+.conf i::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--w); background: var(--accent); border-radius: 3px; }
+.notes { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--slate); }
+details.trace summary { cursor: pointer; font-size: 13px; color: var(--slate); }
+details.trace ol { margin: 6px 0 0; padding-left: 20px; font-size: 13px; color: var(--slate); }
+.empty { padding: 40px 10px; text-align: center; color: var(--slate); }
+.more { display: flex; justify-content: center; margin-top: 14px; }
+
+@media (max-width: 980px) {
+  .layout { grid-template-columns: 1fr; padding: 16px; }
+  .rail { position: static; }
+  .file > summary { grid-template-columns: 1fr; gap: 8px; }
+  .chips { justify-content: flex-start; }
+  .top { padding: 14px 16px; }
+  .notice { padding: 9px 16px; }
+  .finds thead { display: none; }
+  .finds, .finds tbody, .finds tr, .finds td { display: block; }
+  .finds tr { padding: 8px 0; border-bottom: 1px solid var(--rule); }
+  .finds td { border: 0; padding: 2px 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>Поиск персональных данных</h1>
+  <span class="sub">Проверка файлов и архивов по 152-ФЗ с локальной моделью</span>
+  <span class="grow"></span>
+  <span class="health" id="health" aria-live="polite"><span class="dot"></span>проверяю сервисы</span>
+  <a href="/swagger-ui.html" target="_blank" rel="noopener">API и Swagger</a>
+</header>
+<p class="notice" id="notice"><b>Важно:</b> система показывает только наличие признаков персональных данных и не оценивает законность обработки, наличие согласия или возможность публикации.</p>
+
+<main class="layout">
+  <aside class="rail">
+    <section class="panel" aria-labelledby="up-h">
+      <h2 id="up-h">Что проверить</h2>
+      <label class="drop" id="drop" for="file">
+        <strong>Выберите файл или zip-архив</strong>
+        <span id="drop-hint">или перетащите его сюда. Архив обходится целиком, включая вложенные папки и архивы.</span>
+        <input type="file" id="file" hidden>
+      </label>
+      <label class="opt">
+        <input type="checkbox" id="useLlm" checked>
+        <span>Использовать LLM и анализ изображений
+          <small>Находит ФИО и адреса в тексте, читает текст на сканах и фото, ищет лица. Медленнее.</small></span>
+      </label>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="start" disabled>Проверить</button>
+        <button class="btn ghost small" id="open-id" type="button">Открыть прошлый результат</button>
+      </div>
+      <div class="progress" id="progress" hidden>
+        <div class="bar-track"><div class="bar-fill" id="bar"></div></div>
+        <p id="progress-text"></p>
+      </div>
+      <div class="err" id="error" role="alert" hidden></div>
+    </section>
+
+    <section class="panel" id="summary" hidden aria-labelledby="sum-h">
+      <h2 id="sum-h">Итог</h2>
+      <div class="counts">
+        <div class="count yes"><b id="c-yes">0</b><span>с персональными данными</span></div>
+        <div class="count no"><b id="c-no">0</b><span>не найдено</span></div>
+        <div class="count und"><b id="c-und">0</b><span>не определено</span></div>
+        <div class="count"><b id="c-all">0</b><span>файлов всего</span></div>
+      </div>
+      <h2 style="margin-top:16px">Что найдено</h2>
+      <ul class="types" id="types"></ul>
+      <p class="arts" id="arts"></p>
+    </section>
+  </aside>
+
+  <section aria-labelledby="res-h">
+    <h2 id="res-h" style="font:600 19px/1.3 var(--font-serif);margin:0 0 12px">Файлы</h2>
+    <div class="toolbar">
+      <div class="seg" role="group" aria-label="Фильтр по вердикту" id="seg">
+        <button data-v="" aria-pressed="true">Все</button>
+        <button data-v="YES" aria-pressed="false">С данными</button>
+        <button data-v="UNDETERMINED" aria-pressed="false">Не определено</button>
+        <button data-v="NO" aria-pressed="false">Без данных</button>
+      </div>
+      <input class="search" id="q" type="search" placeholder="Поиск по пути файла" aria-label="Поиск по пути файла">
+      <span class="total" id="total"></span>
+      <span class="row">
+        <button class="btn ghost small" id="exp-csv" disabled>Скачать CSV</button>
+        <button class="btn ghost small" id="exp-json" disabled>Скачать JSON</button>
+      </span>
+    </div>
+    <div class="files" id="files"><div class="empty">Загрузите файл или архив, и здесь появится отчёт по каждому файлу.</div></div>
+    <div class="more"><button class="btn ghost" id="more" hidden>Показать ещё</button></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var state = { scanId: null, job: null, verdict: '', q: '', page: 0, size: 50, items: [], total: 0, timer: null, loading: false };
+  var SPECIAL_ARTICLES = ['ст. 10 ч. 1', 'ст. 10 ч. 3'];
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function api(path, opts) {
+    return fetch(path, opts).then(function (r) {
+      if (r.ok) { return r.status === 204 ? null : r.json(); }
+      return r.json().catch(function () { return {}; }).then(function (b) {
+        throw new Error(b.detail || b.title || ('Ошибка ' + r.status));
+      });
+    });
+  }
+
+  function showError(msg) {
+    var e = $('error');
+    e.textContent = msg || '';
+    e.hidden = !msg;
+  }
+
+  // ---- состояние сервисов и справочник
+  function loadHealth() {
+    api('/api/health').then(function (h) {
+      var ok = h.status === 'UP';
+      var parts = [];
+      parts.push('<span class="dot ' + (h.ollamaAvailable ? 'ok' : 'bad') + '"></span>Ollama');
+      parts.push('<span class="dot ' + (h.storageAvailable ? 'ok' : 'bad') + '"></span>' + (h.storage === 'redis' ? 'Redis' : 'память'));
+      var models = h.textModelPulled && h.visionModelPulled;
+      parts.push('<span class="dot ' + (models ? 'ok' : (h.ollamaAvailable ? 'warn' : 'bad')) + '"></span>модели');
+      var el = $('health');
+      el.innerHTML = parts.join('&nbsp;&nbsp;');
+      el.title = (h.hints || []).join('\n') || (ok ? 'Всё готово' : '');
+    }).catch(function () {
+      $('health').innerHTML = '<span class="dot bad"></span>сервер недоступен';
+    });
+  }
+  function loadLegal() {
+    api('/api/pd/legal-basis').then(function (d) {
+      if (d && d.disclaimer) { $('notice').innerHTML = '<b>Важно:</b> ' + esc(d.disclaimer); }
+    }).catch(function () {});
+  }
+
+  // ---- выбор файла
+  var fileInput = $('file');
+  function setFile(f) {
+    if (!f) { return; }
+    var dt = new DataTransfer();
+    dt.items.add(f);
+    fileInput.files = dt.files;
+    $('drop-hint').innerHTML = '<span class="picked">' + esc(f.name) + '</span> (' + fmtSize(f.size) + ')';
+    $('start').disabled = false;
+  }
+  function fmtSize(n) {
+    if (n > 1048576) { return (n / 1048576).toFixed(1) + ' МБ'; }
+    if (n > 1024) { return Math.round(n / 1024) + ' КБ'; }
+    return n + ' Б';
+  }
+  fileInput.addEventListener('change', function () { setFile(fileInput.files[0]); });
+  var drop = $('drop');
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+  });
+  drop.addEventListener('drop', function (e) { if (e.dataTransfer.files.length) { setFile(e.dataTransfer.files[0]); } });
+
+  // ---- запуск
+  $('start').addEventListener('click', function () {
+    var f = fileInput.files[0];
+    if (!f) { return; }
+    showError('');
+    var fd = new FormData();
+    fd.append('file', f);
+    $('start').disabled = true;
+    api('/api/scans?useLlm=' + ($('useLlm').checked ? 'true' : 'false'), { method: 'POST', body: fd })
+      .then(function (job) { track(job.id); })
+      .catch(function (e) { showError(e.message); })
+      .then(function () { $('start').disabled = !fileInput.files[0]; });
+  });
+  $('open-id').addEventListener('click', function () {
+    var last = localStorage.getItem('pd.lastScan') || '';
+    var id = window.prompt('Идентификатор сканирования', last);
+    if (id) { track(id.trim()); }
+  });
+
+  function track(id) {
+    state.scanId = id;
+    try { localStorage.setItem('pd.lastScan', id); } catch (e) { /* хранилище может быть недоступно */ }
+    state.items = []; state.page = 0; state.total = 0;
+    $('summary').hidden = true;
+    $('exp-csv').disabled = $('exp-json').disabled = false;
+    clearTimeout(state.timer);
+    poll();
+  }
+
+  function poll() {
+    api('/api/scans/' + encodeURIComponent(state.scanId)).then(function (job) {
+      state.job = job;
+      renderProgress(job);
+      renderSummary(job);
+      var running = job.status === 'PENDING' || job.status === 'RUNNING';
+      loadFiles(true);
+      if (running) { state.timer = setTimeout(poll, 1500); }
+      else if (job.status === 'FAILED') { showError('Сканирование завершилось ошибкой: ' + (job.error || 'неизвестная ошибка')); }
+    }).catch(function (e) { showError(e.message); });
+  }
+
+  function renderProgress(job) {
+    var box = $('progress');
+    var running = job.status === 'PENDING' || job.status === 'RUNNING';
+    box.hidden = false;
+    var total = Math.max(job.discoveredFiles, job.processedFiles, 1);
+    var pct = running ? Math.min(99, Math.round(job.processedFiles * 100 / total)) : 100;
+    $('bar').style.width = pct + '%';
+    var text = job.status === 'PENDING' ? 'В очереди' :
+      running ? ('Проверено ' + job.processedFiles + ' из ' + total + (job.currentFile ? ': ' + job.currentFile : '')) :
+      job.status === 'COMPLETED' ? ('Готово: проверено файлов ' + job.processedFiles) : 'Ошибка';
+    if (job.warnings && job.warnings.length) { text += '. ' + job.warnings.join(' '); }
+    $('progress-text').textContent = text;
+  }
+
+  function renderSummary(job) {
+    $('summary').hidden = false;
+    $('c-yes').textContent = job.yes;
+    $('c-no').textContent = job.no;
+    $('c-und').textContent = job.undetermined;
+    $('c-all').textContent = job.processedFiles;
+    var s = job.summary;
+    if (!s) { return; }
+    $('c-all').textContent = s.totalFiles;
+    var entries = Object.keys(s.findingsByType || {}).map(function (k) { return [k, s.findingsByType[k]]; });
+    entries.sort(function (a, b) { return b[1] - a[1]; });
+    var max = entries.length ? entries[0][1] : 1;
+    $('types').innerHTML = entries.length ? entries.map(function (e) {
+      var label = typeLabels[e[0]] || e[0];
+      var special = typeSpecial[e[0]] ? ' special' : '';
+      return '<li class="' + special.trim() + '"><span>' + esc(label) + '</span><span class="n">' + e[1] +
+        '</span><span class="meter"><i style="width:' + Math.max(3, Math.round(e[1] * 100 / max)) + '%"></i></span></li>';
+    }).join('') : '<li><span>Признаков не найдено</span></li>';
+    var arts = Object.keys(s.findingsByArticle || {}).map(function (k) { return k + ': ' + s.findingsByArticle[k]; });
+    $('arts').textContent = arts.length ? 'По нормам 152-ФЗ: ' + arts.join(', ') : '';
+  }
+
+  // ---- справочник подписей типов (заполняется из /api/pd/legal-basis)
+  var typeLabels = {}, typeSpecial = {};
+  function loadTypes() {
+    api('/api/pd/legal-basis').then(function (d) {
+      Object.keys(d.types || {}).forEach(function (k) {
+        typeLabels[k] = d.types[k].label;
+        typeSpecial[k] = SPECIAL_ARTICLES.indexOf(d.types[k].article) >= 0;
+      });
+      if (state.job) { renderSummary(state.job); }
+    }).catch(function () {});
+  }
+
+  // ---- список файлов
+  function loadFiles(reset) {
+    if (!state.scanId || state.loading) { return; }
+    state.loading = true;
+    var pages = reset ? Math.max(1, Math.ceil(Math.max(state.items.length, 1) / state.size)) : 1;
+    var startPage = reset ? 0 : state.page + 1;
+    var requests = [];
+    for (var i = 0; i < pages; i++) {
+      requests.push(api('/api/scans/' + encodeURIComponent(state.scanId) + '/files?page=' + (startPage + i) + '&size=' + state.size +
+        (state.verdict ? '&verdict=' + state.verdict : '') + (state.q ? '&q=' + encodeURIComponent(state.q) : '')));
+    }
+    Promise.all(requests).then(function (res) {
+      var items = reset ? [] : state.items.slice();
+      res.forEach(function (r) { items = items.concat(r.items); });
+      state.items = items;
+      state.total = res[res.length - 1].total;
+      state.page = startPage + pages - 1;
+      renderFiles();
+    }).catch(function (e) { showError(e.message); }).then(function () { state.loading = false; });
+  }
+
+  var openPaths = {};
+  function renderFiles() {
+    var box = $('files');
+    $('total').textContent = state.total ? ('Показано ' + state.items.length + ' из ' + state.total) : '';
+    $('more').hidden = state.items.length >= state.total;
+    if (!state.items.length) {
+      box.innerHTML = '<div class="empty">' + (state.job && (state.job.status === 'RUNNING' || state.job.status === 'PENDING')
+        ? 'Идёт проверка, первые результаты появятся здесь.' : 'Нет файлов по выбранному фильтру.') + '</div>';
+      return;
+    }
+    box.innerHTML = state.items.map(fileHtml).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('details.file'), function (d) {
+      d.addEventListener('toggle', function () { openPaths[d.dataset.path] = d.open; });
+    });
+  }
+
+  var verdictText = { YES: 'Есть данные', NO: 'Не найдено', UNDETERMINED: 'Не определено' };
+
+  function fileHtml(f) {
+    var i = f.path.lastIndexOf('/');
+    var dir = i >= 0 ? f.path.slice(0, i + 1) : '';
+    var name = i >= 0 ? f.path.slice(i + 1) : f.path;
+    var chips = '<span class="chip">' + esc(f.format) + '</span>';
+    if (f.findingsTotal) { chips += '<span class="chip">признаков: ' + f.findingsTotal + '</span>'; }
+    if (f.status !== 'OK') { chips += '<span class="chip warn">' + ({ PARTIAL: 'частично', UNSUPPORTED: 'не поддерживается', ERROR: 'ошибка' }[f.status] || f.status) + '</span>'; }
+    var open = openPaths[f.path] ? ' open' : (f.verdict === 'YES' && state.items.length <= 3 ? ' open' : '');
+    return '<details class="file" data-path="' + esc(f.path) + '"' + open + '>' +
+      '<summary><span class="stamp ' + f.verdict + '">' + verdictText[f.verdict] + '</span>' +
+      '<span class="path"><span class="dir">' + esc(dir) + '</span><span class="name">' + esc(name) + '</span></span>' +
+      '<span class="chips">' + chips + '</span></summary>' +
+      '<div class="body">' + findingsHtml(f) + notesHtml(f) + traceHtml(f) + '</div></details>';
+  }
+
+  function findingsHtml(f) {
+    if (!f.findings.length) { return ''; }
+    var rows = f.findings.map(function (x) {
+      var special = SPECIAL_ARTICLES.indexOf(x.legal.article) >= 0;
+      return '<tr class="' + (x.weak ? 'weak' : '') + '">' +
+        '<td><span class="type' + (special ? ' special' : '') + '">' + esc(x.label) + '</span>' + (x.weak ? '<div class="loc">слабый признак</div>' : '') + '</td>' +
+        '<td class="val">' + redact(x.value) + '</td>' +
+        '<td class="loc">' + esc(x.locator) + '</td>' +
+        '<td><div class="conf"><i style="--w:' + Math.round(x.confidence * 100) + '%"></i>' + x.confidence.toFixed(2) + '</div><div class="loc">' + esc(x.detector) + '</div></td>' +
+        '<td class="law"><b>' + esc(x.legal.article) + '</b><p>' + esc(x.legal.explanation) + '</p></td></tr>';
+    }).join('');
+    var more = f.findingsTotal > f.findings.length ? '<p class="loc">Показаны первые ' + f.findings.length + ' из ' + f.findingsTotal + '. В выгрузке CSV и JSON список тоже усечён, полные счётчики по типам есть в JSON.</p>' : '';
+    return '<table class="finds"><thead><tr><th>Признак</th><th>Значение</th><th>Где найдено</th><th>Уверенность</th><th>Норма и объяснение</th></tr></thead><tbody>' + rows + '</tbody></table>' + more;
+  }
+
+  // «*» в замаскированном значении рисуются как чёрные полосы вымарывания
+  function redact(v) {
+    return esc(v).replace(/\*+/g, function (m) { return '<span class="redact" style="width:' + (m.length * 0.62).toFixed(2) + 'ch"></span>'; });
+  }
+
+  function notesHtml(f) {
+    if (!f.notes.length) { return ''; }
+    return '<ul class="notes">' + f.notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul>';
+  }
+  function traceHtml(f) {
+    if (!f.trace.length) { return ''; }
+    return '<details class="trace"><summary>Шаги проверки (' + f.durationMs + ' мс)</summary><ol>' +
+      f.trace.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ol></details>';
+  }
+
+  // ---- фильтры и выгрузка
+  $('seg').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) { return; }
+    Array.prototype.forEach.call($('seg').children, function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+    state.verdict = b.dataset.v;
+    state.items = []; state.page = 0;
+    loadFiles(true);
+  });
+  var qTimer;
+  $('q').addEventListener('input', function () {
+    clearTimeout(qTimer);
+    qTimer = setTimeout(function () { state.q = $('q').value.trim(); state.items = []; state.page = 0; loadFiles(true); }, 300);
+  });
+  $('more').addEventListener('click', function () { loadFiles(false); });
+  $('exp-csv').addEventListener('click', function () { if (state.scanId) { window.location = '/api/scans/' + encodeURIComponent(state.scanId) + '/export?format=csv'; } });
+  $('exp-json').addEventListener('click', function () { if (state.scanId) { window.location = '/api/scans/' + encodeURIComponent(state.scanId) + '/export?format=json'; } });
+
+  loadHealth();
+  loadLegal();
+  loadTypes();
+  setInterval(loadHealth, 30000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: doc-checker
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+
+app:
+  storage:
+    type: redis            # redis | memory (memory — без Redis, данные теряются при перезапуске)
+  ollama:
+    base-url: ${OLLAMA_URL:http://localhost:11434}
+    text-model: ${OLLAMA_TEXT_MODEL:gemma3:4b}      # для текста (PDF/DOCX), разбора требований и сводки
+    vision-model: ${OLLAMA_VISION_MODEL:gemma3:4b}  # для изображений и сканов
+    # think: false          # для thinking-моделей (qwen3 и т.п.), если нужно отключить рассуждения
+    connect-timeout: 5s
+    read-timeout: 5m
+    num-ctx: 8192
+    temperature: 0
+    keep-alive: 10m
+  extract:
+    max-chars-per-chunk: 6000
+    max-total-chars: 60000
+    max-scanned-pages: 10
+    pdf-render-dpi: 130
+    min-text-chars-per-page: 40
+    max-image-side: 1280
+    docx-images-enabled: true
+    max-docx-images: 3
+  check:
+    workers: 1
+    queue-capacity: 20
+    result-ttl: 24h
+    max-requirements: 100
+
+  pd:
+    mask-values: true            # в отчёте и в хранилище значения маскируются (false — показывать как есть)
+    yes-threshold: 0.6           # уверенность, начиная с которой признак считается подтверждённым
+    min-confidence: 0.4          # ниже — признак отбрасывается
+    llm-enabled: true            # LLM-поиск ФИО/адресов/спецкатегорий в тексте
+    vision-enabled: true         # распознавание текста и лиц на изображениях через vision-модель
+    llm-chunk-chars: 3000
+    llm-max-chars-per-file: 30000
+    max-images-per-file: 10
+    max-frames: 5                # кадров GIF / страниц TIFF
+    max-units: 1000000           # строк/ячеек на файл
+    max-findings-per-file: 500   # сколько находок показывать в отчёте по файлу (счётчики — полные)
+    max-archive-entries: 5000
+    max-archive-total-bytes: 1073741824
+    max-entry-bytes: 104857600
+    max-archive-depth: 3
+    result-ttl: 24h
+    workers: 1
+    queue-capacity: 5
+    legal-basis-file: ""         # путь к своему legal-basis.json (иначе используется встроенный)
+
+logging:
+  level:
+    com.example.docchecker: INFO
