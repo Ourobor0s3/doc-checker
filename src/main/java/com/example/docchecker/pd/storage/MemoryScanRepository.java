@@ -3,6 +3,7 @@ package com.example.docchecker.pd.storage;
 import com.example.docchecker.pd.model.FileReport;
 import com.example.docchecker.pd.model.ScanJob;
 import com.example.docchecker.storage.JsonCodec;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -42,6 +43,13 @@ public class MemoryScanRepository implements ScanRepository {
     @Override
     public List<FileReport> findAllFiles(String scanId) {
         return files.getOrDefault(scanId, List.of()).stream().map(v -> json.read(v, FileReport.class)).toList();
+    }
+
+    @Override
+    public List<ScanJob> listJobs(int limit) {
+        return jobs.values().stream().map(v -> json.read(v, ScanJob.class))
+                .sorted(Comparator.comparing((ScanJob j) -> j.createdAt).reversed())
+                .limit(limit).toList();
     }
 
     @Override

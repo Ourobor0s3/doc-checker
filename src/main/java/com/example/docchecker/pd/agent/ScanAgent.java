@@ -4,9 +4,9 @@ import com.example.docchecker.config.AppProperties;
 import com.example.docchecker.llm.LlmClient;
 import com.example.docchecker.llm.LlmResponseFormatException;
 import com.example.docchecker.llm.OllamaException;
+import com.example.docchecker.llm.OllamaTimeoutException;
 import com.example.docchecker.pd.agent.PdAnswers.EntityAnswer;
 import com.example.docchecker.pd.agent.PdAnswers.EntityItem;
-import com.example.docchecker.pd.agent.PdAnswers.VisionAnswer;
 import com.example.docchecker.pd.detect.Masker;
 import com.example.docchecker.pd.detect.RawMatch;
 import com.example.docchecker.pd.detect.RuleEngine;
@@ -56,6 +56,7 @@ public class ScanAgent {
         boolean partial;
         boolean llmDown;
         int llmBadAnswers;
+        String llmFirstBadAnswer;
         int llmCharsUsed;
         boolean llmTruncated;
     }
@@ -66,9 +67,11 @@ public class ScanAgent {
     private final AppProperties props;
     private final LegalReference legal;
     private final RuleEngine rules;
+    private final ImageInspector inspector;
 
     public ScanAgent(FormatDetector detector, ExtractorRegistry registry, LlmClient llm, AppProperties props,
-                     LegalReference legal, RuleEngine rules) {
+                     LegalReference legal, RuleEngine rules, ImageInspector inspector) {
+        this.inspector = inspector;
         this.detector = detector;
         this.registry = registry;
         this.llm = llm;
@@ -119,7 +122,8 @@ public class ScanAgent {
                 visionStep(er, useLlm && props.pd().visionEnabled(), llmOn, run);
             }
             if (run.llmBadAnswers > 0) {
-                run.notes.add("Модель дала некорректный ответ " + run.llmBadAnswers + " раз(а): часть фрагментов не проанализирована LLM");
+                run.notes.add("LLM не обработала " + run.llmBadAnswers + " фрагмент(ов) текста (" + run.llmFirstBadAnswer
+                        + "): они проверены только правилами");
             }
             if (run.llmTruncated) {
                 run.notes.add("LLM-поиск выполнен для первых " + props.pd().llmMaxCharsPerFile() + " символов текста");
@@ -195,26 +199,37 @@ public class ScanAgent {
             for (EntityItem item : answer.findings()) {
                 PdType type = parseType(item.type());
                 String quote = item.text() == null ? "" : item.text().strip();
-                if (type == null || quote.length() < 3) {
+                double confidence = type == null ? 0 : EntityRules.confidence(type, quote);
+                if (confidence <= 0) {
                     continue;
                 }
                 for (TextUnit u : chunk) {
                     if (line(u).contains(quote)) {
-                        run.cands.add(new Cand(type, quote, u.locator(), Math.min(0.7, cap), "LLM"));
+                        run.cands.add(new Cand(type, quote, u.locator(), Math.min(confidence, cap), "LLM"));
                         break;
                     }
                 }
             }
+        } catch (OllamaTimeoutException e) {
+            run.llmBadAnswers++;
+            if (run.llmFirstBadAnswer == null) {
+                run.llmFirstBadAnswer = e.getMessage();
+            }
         } catch (LlmResponseFormatException e) {
             run.llmBadAnswers++;
-            run.notes.add("Ошибка формата ответа от LLM (попытка " + (run.llmBadAnswers + 1) + "): " + 
-                    (e.getMessage() != null ? e.getMessage().substring(0, Math.min(80, e.getMessage().length())) : "unknown"));
+            if (run.llmFirstBadAnswer == null) {
+                run.llmFirstBadAnswer = e.getMessage();
+            }
         } catch (OllamaException e) {
             run.llmDown = true;
             run.notes.add("LLM недоступна, поиск в тексте выполнен только правилами: " + e.getMessage());
         }
     }
 
+    /**
+     * Анализ изображений. Лицо засчитывается только после классификации и независимой проверки, текст читается
+     * только там, где он есть, а значения, прочитанные с изображения, подтверждаются вторым чтением.
+     */
     private void visionStep(ExtractionResult er, boolean visionOn, boolean llmTextOn, Run run) {
         if (!visionOn) {
             run.partial = true;
@@ -222,41 +237,110 @@ public class ScanAgent {
             return;
         }
         int analyzed = 0;
-        int skipped = 0;
+        int skippedByFilter = 0;
+        int failed = 0;
+        int consecutiveTimeouts = 0;
         boolean down = false;
         for (ExtractionResult.ImageUnit img : er.images) {
             if (down) {
-                skipped++;
+                failed++;
                 continue;
             }
             try {
-                VisionAnswer a = llm.chatJson(props.ollama().visionModel(), PdPrompts.VISION_SYSTEM,
-                        "Проанализируй изображение.", List.of(img.base64Jpeg()), PdPrompts.visionSchema(),
-                        VisionAnswer.class);
-                analyzed++;
-                if (a != null && Boolean.TRUE.equals(a.faceVisible())) {
-                    run.cands.add(new Cand(PdType.FACE_PHOTO, "(лицо на изображении)", img.locator(), 0.65, "VLM"));
+                ImageInspector.Inspection ins = inspector.inspect(img);
+                consecutiveTimeouts = 0;
+                if (ins.skipped()) {
+                    skippedByFilter++;
+                    run.trace.add("Изображение «" + img.locator() + "» пропущено: " + ins.skipReason());
+                    continue;
                 }
-                String text = a == null || a.transcribedText() == null ? "" : a.transcribedText().strip();
-                if (text.length() >= 3) {
-                    List<TextUnit> units = List.of(new TextUnit(img.locator() + " → распознанный текст", text, null, TextKind.TEXT));
-                    ruleStep(units, OCR_CAP, "+VLM-OCR", run);
-                    if (llmTextOn) {
-                        llmTextStep(units, OCR_CAP, run);
-                    }
+                analyzed++;
+                run.trace.add("Изображение «" + img.locator() + "»: " + (ins.description().isEmpty() ? "без описания" : ins.description())
+                        + " (тип " + ins.kind() + ", лиц: " + ins.faces() + ")");
+                if (ins.faceConfidence() > 0) {
+                    run.cands.add(new Cand(PdType.FACE_PHOTO, "(лицо на изображении)", img.locator(),
+                            ins.faceConfidence(), ins.faceDetector()));
+                }
+                if (ins.faceNote() != null) {
+                    run.notes.add(img.locator() + ": " + ins.faceNote());
+                }
+                if (ins.ocrError() != null) {
+                    failed++;
+                    run.notes.add(img.locator() + ": " + ins.ocrError());
+                    down = ins.unreachable();
+                }
+                if (ins.transcript().length() >= 3) {
+                    textFromImage(img, ins.transcript(), llmTextOn, run);
+                }
+            } catch (OllamaTimeoutException e) {
+                failed++;
+                if (++consecutiveTimeouts >= 2) {
+                    down = true;
+                    run.notes.add("Модель дважды подряд не ответила вовремя: остальные изображения файла не проанализированы");
+                } else {
+                    run.notes.add(img.locator() + ": " + e.getMessage());
                 }
             } catch (LlmResponseFormatException e) {
-                skipped++;
+                failed++;
+                run.notes.add(img.locator() + ": модель вернула ответ в неверном формате");
             } catch (OllamaException e) {
                 down = true;
-                skipped++;
+                failed++;
                 run.notes.add("Vision-модель недоступна: " + e.getMessage());
             }
         }
-        run.trace.add("Vision-анализ изображений: проанализировано — " + analyzed + ", пропущено — " + skipped);
-        if (skipped > 0) {
+        run.trace.add("Vision-анализ изображений: проанализировано — " + analyzed + ", пропущено фильтром — "
+                + skippedByFilter + ", не удалось — " + failed);
+        if (failed > 0) {
             run.partial = true;
-            run.notes.add("Не проанализировано изображений: " + skipped);
+            run.notes.add("Не проанализировано изображений: " + failed);
+        }
+    }
+
+    private void textFromImage(ExtractionResult.ImageUnit img, String transcript, boolean llmTextOn, Run run) {
+        List<TextUnit> units = List.of(new TextUnit(img.locator() + " → распознанный текст", transcript, null, TextKind.TEXT));
+        int from = run.cands.size();
+        ruleStep(units, OCR_CAP, "+VLM-OCR", run);
+        if (llmTextOn) {
+            llmTextStep(units, OCR_CAP, run);
+        }
+        verifyOcr(img, from, run);
+    }
+
+    /** Значения с изображения подтверждаются независимым вторым чтением; не подтверждённые становятся слабыми. */
+    private void verifyOcr(ExtractionResult.ImageUnit img, int from, Run run) {
+        if (!props.pd().verifyOcr()) {
+            return;
+        }
+        boolean strong = false;
+        for (int i = from; i < run.cands.size(); i++) {
+            if (run.cands.get(i).confidence() >= props.pd().yesThreshold()) {
+                strong = true;
+            }
+        }
+        if (!strong) {
+            return;
+        }
+        String second;
+        try {
+            second = inspector.reread(img);
+        } catch (OllamaException e) {
+            run.notes.add(img.locator() + ": повторное чтение не удалось, значения с изображения не подтверждены");
+            return;
+        }
+        boolean unconfirmed = false;
+        for (int i = from; i < run.cands.size(); i++) {
+            Cand c = run.cands.get(i);
+            if (OcrCompare.confirmed(c.type(), c.value(), second)) {
+                run.cands.set(i, new Cand(c.type(), c.value(), c.locator(), Math.min(0.9, c.confidence() + 0.05),
+                        c.detector() + "+OCR2"));
+            } else {
+                unconfirmed = true;
+                run.cands.set(i, new Cand(c.type(), c.value(), c.locator(), c.confidence() * 0.6, c.detector() + "+UNCONFIRMED"));
+            }
+        }
+        if (unconfirmed) {
+            run.notes.add(img.locator() + ": часть значений не подтвердилась повторным чтением изображения и помечена как слабые признаки");
         }
     }
 

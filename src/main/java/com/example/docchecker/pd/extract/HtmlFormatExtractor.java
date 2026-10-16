@@ -1,10 +1,13 @@
 package com.example.docchecker.pd.extract;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.jsoup.Jsoup;
+import org.jsoup.nodes.Comment;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Node;
@@ -41,11 +44,17 @@ public class HtmlFormatExtractor implements FormatExtractor {
         doc.select("script, style, noscript, template").remove();
 
         Map<Element, StringBuilder> blocks = new LinkedHashMap<>();
+        List<String> comments = new ArrayList<>();
         doc.traverse((node, depth) -> {
             if (node instanceof TextNode tn && !tn.isBlank()) {
                 blocks.computeIfAbsent(blockAncestor(tn, doc), k -> new StringBuilder()).append(tn.text()).append(' ');
+            } else if (node instanceof Comment c && c.getData().strip().length() > 2) {
+                comments.add(c.getData().strip());
             }
         });
+        for (int i = 0; i < comments.size(); i++) {
+            out.text("html [комментарий " + (i + 1) + "]", comments.get(i));
+        }
         for (Map.Entry<Element, StringBuilder> e : blocks.entrySet()) {
             if (!out.text(loc(e.getKey()), e.getValue().toString())) {
                 return;

@@ -68,6 +68,9 @@ public class JsonFormatExtractor implements FormatExtractor {
                 String childPath = path + "." + e.getKey();
                 if (seenKeys.add(e.getKey())) {
                     out.header(childPath, e.getKey());
+                    if (e.getKey().length() >= 5 && !e.getKey().matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                        out.text(childPath + " [ключ]", e.getKey());
+                    }
                 }
                 if (!walk(e.getValue(), childPath, e.getKey(), seenKeys, out, depth + 1)) {
                     return false;

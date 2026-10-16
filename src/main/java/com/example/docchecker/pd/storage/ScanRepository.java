@@ -16,5 +16,8 @@ public interface ScanRepository {
 
     List<FileReport> findAllFiles(String scanId);
 
+    /** Последние сканирования, новые первыми. */
+    List<ScanJob> listJobs(int limit);
+
     void delete(String scanId);
 }

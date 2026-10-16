@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -55,6 +56,13 @@ public class ScanController {
         file.transferTo(tmp);
         ScanJob job = service.submit(tmp, file.getOriginalFilename(), useLlm);
         return ResponseEntity.accepted().location(URI.create("/api/scans/" + job.id)).body(job);
+    }
+
+    @Operation(summary = "История сканирований",
+            description = "Последние сканирования (новые первыми) со статусом и счётчиками. Идентификатор можно скопировать и открыть результат.")
+    @GetMapping
+    public List<ScanJob> recent(@RequestParam(defaultValue = "30") int limit) {
+        return service.recent(limit);
     }
 
     @Operation(summary = "Статус и сводка сканирования")

@@ -68,6 +68,11 @@ public class ScanService {
         return job;
     }
 
+    /** История: последние сканирования, новые первыми. */
+    public List<ScanJob> recent(int limit) {
+        return repository.listJobs(Math.max(1, Math.min(limit, 100)));
+    }
+
     public ScanJob get(String id) {
         return repository.findJob(id).orElseThrow(() ->
                 new ApiException(HttpStatus.NOT_FOUND, "Сканирование не найдено (или результат удалён по TTL): " + id));

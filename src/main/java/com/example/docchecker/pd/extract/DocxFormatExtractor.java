@@ -67,10 +67,16 @@ public class DocxFormatExtractor implements FormatExtractor {
                 }
             }
             comments(doc, out);
+            XmlExtras extras = xmlExtras(data);
             int box = 0;
-            for (String t : textBoxes(data)) {
+            for (String t : extras.textBoxes()) {
                 box++;
                 out.text("текстовое поле " + box, t);
+            }
+            int del = 0;
+            for (String t : extras.deleted()) {
+                del++;
+                out.text("удалённый текст в истории правок " + del, t);
             }
             if (doc.getProperties() != null && doc.getProperties().getCoreProperties() != null) {
                 out.meta("docx.creator", doc.getProperties().getCoreProperties().getCreator());
@@ -171,24 +177,27 @@ public class DocxFormatExtractor implements FormatExtractor {
         }
     }
 
-    /** Текст из текстовых полей (txbxContent) — POI их не показывает. Дубли из mc:Fallback пропускаются. */
-    static List<String> textBoxes(byte[] data) {
-        List<String> res = new ArrayList<>();
+    /** Текст, который POI не показывает: текстовые поля и удалённый текст в истории правок (он остаётся в файле). */
+    record XmlExtras(List<String> textBoxes, List<String> deleted) {}
+
+    static XmlExtras xmlExtras(byte[] data) {
+        List<String> boxes = new ArrayList<>();
+        List<String> deleted = new ArrayList<>();
         try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(data))) {
             ZipEntry e;
             while ((e = zip.getNextEntry()) != null) {
                 if (e.getName().equals("word/document.xml")) {
-                    readTextBoxes(zip, res);
+                    readXml(zip, boxes, deleted);
                     break;
                 }
             }
         } catch (Exception ex) {
-            // текстовые поля — дополнительный источник; ошибка чтения не должна ронять разбор документа
+            // дополнительные источники; ошибка чтения не должна ронять разбор документа
         }
-        return res;
+        return new XmlExtras(boxes, deleted);
     }
 
-    private static void readTextBoxes(InputStream in, List<String> res) throws XMLStreamException {
+    private static void readXml(InputStream in, List<String> boxes, List<String> deleted) throws XMLStreamException {
         XMLInputFactory f = XMLInputFactory.newFactory();
         f.setProperty(XMLInputFactory.SUPPORT_DTD, false);
         f.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
@@ -196,7 +205,9 @@ public class DocxFormatExtractor implements FormatExtractor {
         int box = 0;
         int fallback = 0;
         boolean inText = false;
+        boolean inDel = false;
         StringBuilder cur = new StringBuilder();
+        StringBuilder del = new StringBuilder();
         while (r.hasNext()) {
             int ev = r.next();
             if (ev == XMLStreamConstants.START_ELEMENT) {
@@ -207,6 +218,8 @@ public class DocxFormatExtractor implements FormatExtractor {
                     box++;
                 } else if (ln.equals("t") && box > 0 && fallback == 0) {
                     inText = true;
+                } else if (ln.equals("delText") && fallback == 0) {
+                    inDel = true;
                 }
             } else if (ev == XMLStreamConstants.END_ELEMENT) {
                 String ln = r.getLocalName();
@@ -215,18 +228,31 @@ public class DocxFormatExtractor implements FormatExtractor {
                 } else if (ln.equals("txbxContent")) {
                     box--;
                     if (box == 0 && fallback == 0 && !cur.toString().isBlank()) {
-                        res.add(cur.toString().strip());
+                        boxes.add(cur.toString().strip());
                     }
                     if (box == 0) {
                         cur.setLength(0);
                     }
                 } else if (ln.equals("t")) {
                     inText = false;
-                } else if (ln.equals("p") && box > 0 && fallback == 0) {
-                    cur.append('\n');
+                } else if (ln.equals("delText")) {
+                    inDel = false;
+                } else if (ln.equals("p")) {
+                    if (box > 0 && fallback == 0) {
+                        cur.append('\n');
+                    }
+                    if (!del.toString().isBlank()) {
+                        deleted.add(del.toString().strip());
+                    }
+                    del.setLength(0);
                 }
-            } else if (ev == XMLStreamConstants.CHARACTERS && inText) {
-                cur.append(r.getText());
+            } else if (ev == XMLStreamConstants.CHARACTERS) {
+                if (inText) {
+                    cur.append(r.getText());
+                }
+                if (inDel) {
+                    del.append(r.getText());
+                }
             }
         }
     }

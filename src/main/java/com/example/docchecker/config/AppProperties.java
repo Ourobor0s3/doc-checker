@@ -26,7 +26,8 @@ public record AppProperties(
             Boolean think,
             @DefaultValue("5s") Duration connectTimeout,
             @DefaultValue("5m") Duration readTimeout,
-            @DefaultValue("8192") int numCtx,
+            @DefaultValue("16384") int numCtx,
+            @DefaultValue("1536") int numPredict,
             @DefaultValue("0") double temperature,
             @DefaultValue("10m") String keepAlive) {}
 
@@ -53,6 +54,9 @@ public record AppProperties(
             @DefaultValue("0.4") double minConfidence,
             @DefaultValue("true") boolean llmEnabled,
             @DefaultValue("true") boolean visionEnabled,
+            @DefaultValue("true") boolean verifyFaces,
+            @DefaultValue("true") boolean verifyOcr,
+            @DefaultValue("48") int minImageSide,
             @DefaultValue("3000") int llmChunkChars,
             @DefaultValue("30000") int llmMaxCharsPerFile,
             @DefaultValue("10") int maxImagesPerFile,

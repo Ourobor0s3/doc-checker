@@ -40,13 +40,22 @@ public class OllamaClient implements LlmClient {
     public <T> T chatJson(String model, String system, String user, List<String> imagesBase64,
                           Map<String, Object> schema, Class<T> type) {
         for (int attempt = 1; attempt <= 2; attempt++) {
-            // Со второй попытки чуть повышаем температуру: при temperature=0 ответ был бы тем же.
             double temperature = attempt == 1 ? cfg.temperature() : Math.max(cfg.temperature(), 0.2);
-            String content = chat(model, system, user, imagesBase64, schema, temperature);
+            String prompt = attempt == 1 ? user
+                    : user + "\n\nПредыдущий ответ был обрезан. Верни полный валидный JSON по схеме, коротко.";
+            String content = chat(model, system, prompt, imagesBase64, schema, temperature);
+            String json = JsonTexts.extractJson(content);
             try {
-                return mapper.readValue(extractJson(content), type);
+                return mapper.readValue(json, type);
             } catch (JsonProcessingException e) {
                 log.warn("Модель {} вернула некорректный JSON (попытка {}): {}", model, attempt, e.getOriginalMessage());
+                try {
+                    T repaired = mapper.readValue(JsonTexts.repair(json, mapper), type);
+                    log.info("Модель {}: JSON восстановлен после обрыва ответа", model);
+                    return repaired;
+                } catch (JsonProcessingException ignored) {
+                    // вторая попытка запроса
+                }
             }
         }
         throw new LlmResponseFormatException("Модель " + model + " вернула ответ не в ожидаемом JSON-формате");
@@ -79,12 +88,17 @@ public class OllamaClient implements LlmClient {
             userMessage.put("images", images);
         }
 
+        Map<String, Object> options = new LinkedHashMap<>();
+        options.put("temperature", temperature);
+        options.put("num_ctx", cfg.numCtx());
+        options.put("num_predict", cfg.numPredict());
+
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", model);
         body.put("stream", false);
         body.put("format", schema);
         body.put("keep_alive", cfg.keepAlive());
-        body.put("options", Map.of("temperature", temperature, "num_ctx", cfg.numCtx()));
+        body.put("options", options);
         if (cfg.think() != null) {
             body.put("think", cfg.think());
         }
@@ -104,22 +118,21 @@ public class OllamaClient implements LlmClient {
             throw new OllamaException("Ollama вернула ошибку " + e.getStatusCode().value() + ": "
                     + abbreviate(e.getResponseBodyAsString(), 300));
         } catch (ResourceAccessException e) {
+            if (isTimeout(e)) {
+                throw new OllamaTimeoutException("Модель " + model + " не ответила за " + cfg.readTimeout().toSeconds()
+                        + " с (можно увеличить app.ollama.read-timeout)");
+            }
             throw new OllamaException("Ollama недоступна (" + cfg.baseUrl() + "): " + e.getMessage());
         }
     }
 
-    /** Убирает markdown-ограждения и всё лишнее вокруг JSON-объекта. */
-    static String extractJson(String content) {
-        String s = content == null ? "" : content.strip();
-        if (s.startsWith("```")) {
-            s = s.replaceFirst("^```(?:json)?\\s*", "").replaceFirst("\\s*```$", "");
+    private static boolean isTimeout(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof java.net.SocketTimeoutException) {
+                return true;
+            }
         }
-        int from = s.indexOf('{');
-        int to = s.lastIndexOf('}');
-        if (from >= 0 && to > from) {
-            s = s.substring(from, to + 1);
-        }
-        return s;
+        return false;
     }
 
     private static String abbreviate(String s, int max) {

@@ -9,7 +9,7 @@ import java.util.List;
 public class RuleEngine {
 
     private final List<Detector> detectors = List.of(
-            new SnilsDetector(), new InnDetector(), new BankCardDetector(), new DocNumberDetector(),
+            new SnilsDetector(), new InnDetector(), new BankCardDetector(), new OmsPolicyDetector(), new DocNumberDetector(),
             new PhoneDetector(), new EmailDetector(), new BirthDateDetector(), new AddressDetector(),
             new FullNameDetector(), new LabeledSpecialDetector(), new FieldValueDetector());
     private final FieldNameDetector fieldNames = new FieldNameDetector();

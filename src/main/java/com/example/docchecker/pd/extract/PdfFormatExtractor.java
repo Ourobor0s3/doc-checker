@@ -75,7 +75,8 @@ public class PdfFormatExtractor implements FormatExtractor {
                         BufferedImage img = renderer.renderImageWithDPI(p - 1, cfg.pdfRenderDpi(), ImageType.RGB);
                         out.image("стр. " + p + " (скан)", images.encode(img));
                     } catch (Exception e) {
-                        out.note("Стр. " + p + ": не удалось прочитать скан (устранена зависимость jbig2-imageio); текст извлечён");
+                        out.partial("Стр. " + p + ": не удалось отрисовать страницу для анализа ("
+                                + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()) + ")");
                     }
                 } else {
                     embeddedImages(doc.getPage(p - 1), p, out);

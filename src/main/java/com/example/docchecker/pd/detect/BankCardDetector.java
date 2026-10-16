@@ -17,13 +17,31 @@ public class BankCardDetector implements Detector {
         while (m.find()) {
             String v = m.group();
             String d = Ctx.digits(v);
-            if (d.length() < 13 || d.length() > 19 || d.charAt(0) < '2' || d.charAt(0) > '6' || !Ctx.luhn(d)) {
+            if (d.length() < 13 || d.length() > 19 || !plausibleIssuer(d) || !Ctx.luhn(d)) {
                 continue;
             }
             boolean grouped = v.length() > d.length();
             boolean kw = Ctx.has(KW, s, m.start(), 30);
             double c = grouped ? 0.93 : (kw ? 0.85 : 0.5);
             out.add(new RawMatch(PdType.BANK_CARD, m.start(), m.end(), v, c, "CARD_LUHN"));
+        }
+    }
+
+    /** Диапазоны номеров платёжных систем: отсекает случайные числа, формально проходящие алгоритм Луна. */
+    static boolean plausibleIssuer(String d) {
+        int p2 = Integer.parseInt(d.substring(0, 2));
+        int p4 = Integer.parseInt(d.substring(0, 4));
+        switch (d.charAt(0)) {
+            case '4':
+                return true;                                   // Visa
+            case '5', '6':
+                return true;                                   // Mastercard, Maestro, UnionPay, Discover
+            case '2':
+                return p4 >= 2200 && p4 <= 2204 || p4 >= 2221 && p4 <= 2720; // Мир, Mastercard
+            case '3':
+                return p2 == 34 || p2 == 37 || p2 >= 35 && p2 <= 36;         // Amex, JCB, Diners
+            default:
+                return false;
         }
     }
 }

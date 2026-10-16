@@ -15,6 +15,7 @@ import com.example.docchecker.pd.model.ScanJob;
 import com.example.docchecker.pd.model.ScanStatus;
 import com.example.docchecker.pd.service.ScanService;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -23,9 +24,11 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import javax.imageio.ImageIO;
@@ -34,6 +37,9 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.junit.jupiter.api.Test;
@@ -62,10 +68,29 @@ class PdScanFlowTest {
                     if (type == PdAnswers.EntityAnswer.class) {
                         return type.cast(new PdAnswers.EntityAnswer(List.of()));
                     }
-                    if (type == PdAnswers.VisionAnswer.class) {
-                        return type.cast(new PdAnswers.VisionAnswer("Паспорт: 45 12 123456", true));
+                    int width = width(images.get(0));
+                    if (type == PdAnswers.SceneAnswer.class) {
+                        return type.cast(switch (width) {
+                            case 201 -> new PdAnswers.SceneAnswer("Портрет", "PHOTO_OF_PERSON", 1, "глаза, нос, рот", false);
+                            case 202 -> new PdAnswers.SceneAnswer("Мультяшный персонаж", "DRAWING", 1, "глаза и улыбка", false);
+                            default -> new PdAnswers.SceneAnswer("Скан документа", "TEXT_DOCUMENT", 0, "", true);
+                        });
+                    }
+                    if (type == PdAnswers.PhotoCheckAnswer.class) {
+                        return type.cast(new PdAnswers.PhotoCheckAnswer("Живой человек", "REAL_PHOTO"));
+                    }
+                    if (type == PdAnswers.OcrAnswer.class) {
+                        return type.cast(new PdAnswers.OcrAnswer("Паспорт: 45 12 123456"));
                     }
                     throw new IllegalStateException("unexpected " + type);
+                }
+
+                private int width(String base64) {
+                    try {
+                        return ImageIO.read(new ByteArrayInputStream(Base64.getDecoder().decode(base64))).getWidth();
+                    } catch (Exception e) {
+                        throw new IllegalStateException(e);
+                    }
                 }
 
                 @Override
@@ -91,7 +116,11 @@ class PdScanFlowTest {
         files.put("документы/справка.docx", docx(false));
         files.put("документы/письмо.pdf", pdf("Please contact our colleague by email john.smith@example.com for details"));
         files.put("документы/сотрудники.parquet", parquet());
-        files.put("документы/скан.png", png());
+        files.put("документы/скан.png", png(200));
+        files.put("документы/портрет.png", png(201));
+        files.put("документы/рисунок.png", png(202));
+        files.put("документы/пустая.png", blankPng());
+        files.put("документы/реестр.xlsx", xlsx());
         files.put("readme.txt", "Обычный технический текст. Версия 1.2.3.".getBytes(StandardCharsets.UTF_8));
 
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
@@ -126,8 +155,20 @@ class PdScanFlowTest {
         assertTrue(has(find(reports, "письмо.pdf"), PdType.EMAIL));
         assertTrue(has(find(reports, "сотрудники.parquet"), PdType.PHONE));
 
-        FileReport png = find(reports, "скан.png");
-        assertTrue(has(png, PdType.PASSPORT_RF) && has(png, PdType.FACE_PHOTO), png.findings().toString());
+        FileReport scan = find(reports, "скан.png");
+        assertTrue(has(scan, PdType.PASSPORT_RF), scan.findings().toString());
+        assertFalse(has(scan, PdType.FACE_PHOTO), "на скане текста лица нет");
+        assertTrue(scan.findings().get(0).detector().contains("OCR2"), "значение подтверждено повторным чтением");
+
+        assertTrue(has(find(reports, "портрет.png"), PdType.FACE_PHOTO));
+        FileReport drawing = find(reports, "рисунок.png");
+        assertFalse(has(drawing, PdType.FACE_PHOTO), "рисунок — не фотография человека");
+        assertEquals(FileVerdict.NO, drawing.verdict());
+        assertEquals(FileVerdict.NO, find(reports, "пустая.png").verdict());
+
+        FileReport xlsx = find(reports, "реестр.xlsx");
+        assertTrue(xlsx.findings().stream().anyMatch(f -> f.type() == PdType.FULL_NAME && f.locator().contains("C2")),
+                "ФИО, собранное формулой, должно находиться по вычисленному значению: " + xlsx.findings());
 
         assertEquals(FileVerdict.NO, find(reports, "readme.txt").verdict());
 
@@ -207,10 +248,47 @@ class PdScanFlowTest {
         }
     }
 
-    private static byte[] png() throws Exception {
-        BufferedImage img = new BufferedImage(200, 200, BufferedImage.TYPE_INT_RGB);
+    /** Шумовое изображение (не пустое): ширина выбирает сценарий в подставной модели. */
+    private static byte[] png(int width) throws Exception {
+        BufferedImage img = new BufferedImage(width, width, BufferedImage.TYPE_INT_RGB);
+        Random random = new Random(width);
+        for (int y = 0; y < width; y++) {
+            for (int x = 0; x < width; x++) {
+                img.setRGB(x, y, random.nextInt(0xFFFFFF));
+            }
+        }
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             ImageIO.write(img, "png", out);
+            return out.toByteArray();
+        }
+    }
+
+    private static byte[] blankPng() throws Exception {
+        BufferedImage img = new BufferedImage(300, 300, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < 300; y++) {
+            for (int x = 0; x < 300; x++) {
+                img.setRGB(x, y, 0xFFFFFF);
+            }
+        }
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            ImageIO.write(img, "png", out);
+            return out.toByteArray();
+        }
+    }
+
+    private static byte[] xlsx() throws Exception {
+        try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet sheet = wb.createSheet("Кадры");
+            Row head = sheet.createRow(0);
+            head.createCell(0).setCellValue("Код");
+            head.createCell(1).setCellValue("Группа");
+            head.createCell(2).setCellValue("Итого");
+            Row row = sheet.createRow(1);
+            row.createCell(0).setCellValue("К-1");
+            row.createCell(1).setCellValue("Б");
+            row.createCell(2).setCellFormula("\"Петров\"&\" \"&\"Пётр\"&\" \"&\"Петрович\"");
+            wb.getCreationHelper().createFormulaEvaluator().evaluateAll();
+            wb.write(out);
             return out.toByteArray();
         }
     }

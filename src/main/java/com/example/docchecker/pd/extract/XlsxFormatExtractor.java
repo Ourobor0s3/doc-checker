@@ -5,6 +5,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellType;
+import org.apache.poi.ss.usermodel.Comment;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
@@ -44,7 +46,7 @@ public class XlsxFormatExtractor implements FormatExtractor {
                 first = false;
                 if (looksLikeHeader(row, fmt)) {
                     for (Cell cell : row) {
-                        String h = fmt.formatCellValue(cell).strip();
+                        String h = cellText(cell, fmt).strip();
                         if (!h.isBlank()) {
                             headers.put(cell.getColumnIndex(), h);
                             out.header("лист «" + sheet.getSheetName() + "», " + cell.getAddress().formatAsString(), h);
@@ -54,11 +56,18 @@ public class XlsxFormatExtractor implements FormatExtractor {
                 }
             }
             for (Cell cell : row) {
-                String v = fmt.formatCellValue(cell);
+                String locator = "лист «" + sheet.getSheetName() + "», " + cell.getAddress().formatAsString();
+                Comment comment = cell.getCellComment();
+                if (comment != null) {
+                    out.meta("xlsx.comment.author", comment.getAuthor());
+                    if (comment.getString() != null) {
+                        out.text(locator + " [примечание]", comment.getString().getString());
+                    }
+                }
+                String v = cellText(cell, fmt);
                 if (v.isBlank()) {
                     continue;
                 }
-                String locator = "лист «" + sheet.getSheetName() + "», " + cell.getAddress().formatAsString();
                 if (!out.field(locator, v, headers.get(cell.getColumnIndex()))) {
                     return false;
                 }
@@ -70,7 +79,7 @@ public class XlsxFormatExtractor implements FormatExtractor {
     private static boolean looksLikeHeader(Row row, DataFormatter fmt) {
         boolean any = false;
         for (Cell cell : row) {
-            String v = fmt.formatCellValue(cell).strip();
+            String v = cellText(cell, fmt).strip();
             if (v.isEmpty()) {
                 continue;
             }
@@ -80,5 +89,24 @@ public class XlsxFormatExtractor implements FormatExtractor {
             }
         }
         return any;
+    }
+
+    /**
+     * Значение ячейки. Для формул берётся сохранённый результат вычисления, а не текст формулы:
+     * персональные данные могут быть собраны формулой (например, ФИО из трёх столбцов).
+     */
+    static String cellText(Cell cell, DataFormatter fmt) {
+        if (cell.getCellType() != CellType.FORMULA) {
+            return fmt.formatCellValue(cell);
+        }
+        switch (cell.getCachedFormulaResultType()) {
+            case STRING:
+                return cell.getStringCellValue();
+            case NUMERIC:
+                return fmt.formatRawCellContents(cell.getNumericCellValue(), cell.getCellStyle().getDataFormat(),
+                        cell.getCellStyle().getDataFormatString());
+            default:
+                return "";
+        }
     }
 }

@@ -54,6 +54,9 @@ app:
     min-confidence: 0.4          # ниже — признак отбрасывается
     llm-enabled: true            # LLM-поиск ФИО/адресов/спецкатегорий в тексте
     vision-enabled: true         # распознавание текста и лиц на изображениях через vision-модель
+    verify-faces: true           # лицо засчитывается только после независимой проверки «это реальная фотография человека?»
+    verify-ocr: true             # значения, прочитанные с изображения, сверяются со вторым чтением
+    min-image-side: 48           # изображения меньше (иконки) не отправляются в модель
     llm-chunk-chars: 3000
     llm-max-chars-per-file: 30000
     max-images-per-file: 10
@@ -72,3 +75,5 @@ app:
 logging:
   level:
     com.example.docchecker: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %5p [%15.15t] %-32.32logger{31} : %m%n"

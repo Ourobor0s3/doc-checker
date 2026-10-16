@@ -44,6 +44,18 @@ class PdDetectorsTest {
     }
 
     @Test
+    void randomNumbersThatPassLuhnAreNotCards() {
+        assertFalse(has(scan("номер 0000 0000 0000 0000"), PdType.BANK_CARD));
+        assertFalse(has(scan("код 1000 0000 0000 0009"), PdType.BANK_CARD), "1xxx — не платёжная система");
+    }
+
+    @Test
+    void omsPolicyNeedsItsKeyword() {
+        assertTrue(has(scan("полис ОМС 1234 5678 9012 3456"), PdType.OMS_POLICY));
+        assertFalse(has(scan("заказ 1234 5678 9012 3456"), PdType.OMS_POLICY));
+    }
+
+    @Test
     void passportAndDriverLicenseAreToldApartByContext() {
         assertTrue(has(scan("паспорт серия 45 12 № 123456"), PdType.PASSPORT_RF));
         assertTrue(has(scan("водительское удостоверение 99 21 654321"), PdType.DRIVER_LICENSE));

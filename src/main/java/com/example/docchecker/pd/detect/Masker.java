@@ -13,7 +13,7 @@ public final class Masker {
             return "";
         }
         switch (type) {
-            case SNILS, INN, PASSPORT_RF, DRIVER_LICENSE, PHONE:
+            case SNILS, INN, PASSPORT_RF, DRIVER_LICENSE, OMS_POLICY, PHONE:
                 return keep(v, 0, 2);
             case BANK_CARD:
                 return keep(v, 0, 4);

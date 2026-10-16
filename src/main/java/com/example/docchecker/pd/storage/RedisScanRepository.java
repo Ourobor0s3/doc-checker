@@ -5,8 +5,11 @@ import com.example.docchecker.pd.model.FileReport;
 import com.example.docchecker.pd.model.ScanJob;
 import com.example.docchecker.storage.JsonCodec;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
@@ -16,6 +19,7 @@ import org.springframework.stereotype.Repository;
 public class RedisScanRepository implements ScanRepository {
 
     private static final String PREFIX = "docchecker:scan:";
+    private static final String INDEX = "docchecker:scans";
 
     private final StringRedisTemplate redis;
     private final JsonCodec json;
@@ -30,6 +34,7 @@ public class RedisScanRepository implements ScanRepository {
     @Override
     public void saveJob(ScanJob job) {
         redis.opsForValue().set(PREFIX + job.id, json.write(job), ttl);
+        redis.opsForZSet().add(INDEX, job.id, job.createdAt.toEpochMilli());
     }
 
     @Override
@@ -54,7 +59,28 @@ public class RedisScanRepository implements ScanRepository {
     }
 
     @Override
+    public List<ScanJob> listJobs(int limit) {
+        // записи старше срока хранения уже удалены Redis по TTL: убираем их из индекса
+        redis.opsForZSet().removeRangeByScore(INDEX, 0, Instant.now().minus(ttl).toEpochMilli());
+        Set<String> ids = redis.opsForZSet().reverseRange(INDEX, 0, Math.max(0, limit - 1));
+        List<ScanJob> result = new ArrayList<>();
+        if (ids == null) {
+            return result;
+        }
+        for (String id : ids) {
+            Optional<ScanJob> job = findJob(id);
+            if (job.isPresent()) {
+                result.add(job.get());
+            } else {
+                redis.opsForZSet().remove(INDEX, id);
+            }
+        }
+        return result;
+    }
+
+    @Override
     public void delete(String scanId) {
         redis.delete(List.of(PREFIX + scanId, PREFIX + scanId + ":files"));
+        redis.opsForZSet().remove(INDEX, scanId);
     }
 }
